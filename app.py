@@ -4,6 +4,42 @@ from flask_cors import CORS
 import hashlib
 import datetime
 
+import smtplib
+from email.message import EmailMessage
+
+
+PASSWORD = "vkbdvirlcbfikfwq"
+SENDER = "codetestjayy@gmail.com"
+
+# Set frequency to 2000 Hertz
+frequency = 2000
+# Set duration to 1500 milliseconds (1.5 seconds)
+duration = 300
+
+def send_email(mail):
+    # print("Sending email...")
+    # Make beep sound on Windows
+    # winsound.Beep(frequency, duration)
+    # pass
+    RECEIVER = mail
+    
+    email_message = EmailMessage()
+    email_message["Subject"] = "New Donation"
+    email_message.set_content("Hey, a new donation has been listed in your area. Check it out now in our website!")
+    
+    #port for gmail is 587
+    gmail = smtplib.SMTP("smtp.gmail.com", 587)
+    gmail.ehlo()
+    gmail.starttls()
+    gmail.login(SENDER, PASSWORD)
+    gmail.sendmail(SENDER, RECEIVER, email_message.as_string())
+    gmail.quit()
+    
+    
+if __name__ == "_main_":
+    send_email()
+    pass
+
 app = Flask(__name__, template_folder="templates")
 app.config['SECRET_KEY'] = '5791628bb0b13ce0c676dfde280ba245'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
@@ -46,6 +82,7 @@ class donation(db.Model):
     city = db.Column(db.String(100), nullable=False)
     state = db.Column(db.String(100), nullable=False)
     pincode = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(100), nullable=False)
     country = db.Column(db.String(100), nullable=False)
     donor_id = db.Column(db.Integer, db.ForeignKey('donor.id'), nullable=False)
     foods = db.relationship('food', backref='donation', lazy=True)
@@ -143,10 +180,11 @@ def addDonation(donor_id):
     state = data[0]['state']
     pincode = data[0]['pincode']
     country = data[0]['country']
+    phone = data[0]['phone']
 
     print('Donation details adding....')
 
-    new_donation = donation(address=address, city=city, state=state, pincode=pincode, country=country, donor_id=donor_id)    
+    new_donation = donation(address=address, city=city, state=state, pincode=pincode, country=country, donor_id=donor_id, phone=phone)    
     print('Donation details adding....1')
     db.session.add(new_donation)
     print('Donation details adding....2')
@@ -156,7 +194,11 @@ def addDonation(donor_id):
 
     print('Donation details added successfully')
 
+    donations = 0
+    plates = 0
     for i in data:
+        donations += 1
+        plates += int(i['serving'])
         foodName = i['name']
         serving = int(i['serving'])
         quantity = int(i['quantity'])
@@ -165,12 +207,22 @@ def addDonation(donor_id):
         db.session.add(new_food)
         db.session.commit()
 
+    donorr = donor.query.get(donor_id)
+    donorr.noOfDonations += donations
+    donorr.noOfPlatesDonated += plates
+    donorr.noOfActiveDonations += 1
+    db.session.commit()
+
+    # send email to all ngo in the area
+    allNGO = NGO.query.all()
+    for i in allNGO:
+        if i.pincode == pincode:
+            send_email(i.email)
+
     return jsonify({"message": "Donation added successfully"})
 
 @app.route('/DashboardNGO/<int:ngo_id>', methods=['GET'])
 def DashboardNGO(ngo_id):
-    print('I am inside')
-    print('ngo_id:', ngo_id)
     ngo = NGO.query.get(ngo_id)
 
     foodList = []
@@ -181,7 +233,7 @@ def DashboardNGO(ngo_id):
     donations = donation.query.all()
     
     for i in donations:
-        if not (i.pincode == ngo.pincode or i.city == ngo.city or i.state == ngo.state or i.country == ngo.country):
+        if not (i.pincode == ngo.pincode and i.city == ngo.city and i.state == ngo.state and i.country == ngo.country):
             continue
         donationDetails = {
             "address": i.address,
@@ -190,7 +242,8 @@ def DashboardNGO(ngo_id):
             "pincode": i.pincode,
             "country": i.country,
             "items": [],
-            "id" : i.id
+            "id" : i.id,
+            "phone": i.phone
         }
 
         current_datetime=datetime.datetime.now()
@@ -255,6 +308,22 @@ def DashboardDonor(donor_id):
 @app.route('/DeleteDonation/<int:donation_id>', methods=['DELETE'])
 def DeleteDonation(donation_id):
     availFood = food.query.filter_by(donation_id=donation_id).all()
+    
+    donorr = donor.query.get(donation.query.get(donation_id).donor_id)
+    donorr.noOfActiveDonations -= 1
+    db.session.commit()
+
+    plates = 0
+    for i in availFood:
+        plates += i.serving
+    
+    #add to ngo plates
+    ngo = NGO.query.get(donorr.id)
+    ngo.noOfPlates += plates
+    ngo.noOfDonations += 1
+    ngo.noOfActiveDonations += 1
+    db.session.commit()
+    
     for i in availFood:
         db.session.delete(i)
         db.session.commit()
@@ -275,3 +344,4 @@ def initialize_database():
 if __name__ == '__main__':
     initialize_database()
     app.run(host='0.0.0.0', debug=True, port=5000)
+
