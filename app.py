@@ -4,9 +4,13 @@ from flask_cors import CORS
 import hashlib
 import datetime
 
+app = Flask(__name__, template_folder="templates")
+app.config['SECRET_KEY'] = '5791628bb0b13ce0c676dfde280ba245'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+db = SQLAlchemy(app)
+
 import smtplib
 from email.message import EmailMessage
-
 
 PASSWORD = "vkbdvirlcbfikfwq"
 SENDER = "codetestjayy@gmail.com"
@@ -34,16 +38,6 @@ def send_email(mail):
     gmail.login(SENDER, PASSWORD)
     gmail.sendmail(SENDER, RECEIVER, email_message.as_string())
     gmail.quit()
-    
-    
-if __name__ == "_main_":
-    send_email()
-    pass
-
-app = Flask(__name__, template_folder="templates")
-app.config['SECRET_KEY'] = '5791628bb0b13ce0c676dfde280ba245'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
-db = SQLAlchemy(app)
 
 CORS(app)
 
@@ -51,7 +45,7 @@ class NGO(db.Model):
     __tablename__ = 'ngo'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
+    email = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(100), nullable=False)
     address = db.Column(db.String(100), nullable=False)
@@ -82,8 +76,8 @@ class donation(db.Model):
     city = db.Column(db.String(100), nullable=False)
     state = db.Column(db.String(100), nullable=False)
     pincode = db.Column(db.String(100), nullable=False)
-    phone = db.Column(db.String(100), nullable=False)
     country = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(100), nullable=False)
     donor_id = db.Column(db.Integer, db.ForeignKey('donor.id'), nullable=False)
     foods = db.relationship('food', backref='donation', lazy=True)
 
@@ -154,7 +148,7 @@ def loginNGO():
             return jsonify({"message": "Invalid email or password"})
     else:
         return jsonify({"message": "Invalid email or password"})
-    
+
 @app.route('/loginDonor', methods=['POST'])
 def loginDonor():
     data = request.json
@@ -168,7 +162,7 @@ def loginDonor():
             return jsonify({"message": "Invalid email or password"})
     else:
         return jsonify({"message": "Invalid email or password"})
-    
+
 @app.route('/addDonation/<int:donor_id>', methods=['POST'])
 def addDonation(donor_id):
     donor_id = int(donor_id)
@@ -193,6 +187,15 @@ def addDonation(donor_id):
     donation_id = new_donation.id
 
     print('Donation details added successfully')
+
+    for i in data:
+        foodName = i['name']
+        serving = int(i['serving'])
+        quantity = int(i['quantity'])
+        expiry = i['expiry']
+        new_food = food(name=foodName, serving=serving, quantity=quantity, expiry=expiry, donation_id=donation_id)
+        db.session.add(new_food)
+        db.session.commit()
 
     donations = 0
     plates = 0
@@ -223,6 +226,8 @@ def addDonation(donor_id):
 
 @app.route('/DashboardNGO/<int:ngo_id>', methods=['GET'])
 def DashboardNGO(ngo_id):
+    print('I am inside')
+    print('ngo_id:', ngo_id)
     ngo = NGO.query.get(ngo_id)
 
     foodList = []
@@ -231,9 +236,9 @@ def DashboardNGO(ngo_id):
     str_date = current_datetime.strftime("%Y-%m-%d")
 
     donations = donation.query.all()
-    
+
     for i in donations:
-        if not (i.pincode == ngo.pincode and i.city == ngo.city and i.state == ngo.state and i.country == ngo.country):
+        if not (i.pincode == ngo.pincode or i.city == ngo.city or i.state == ngo.state or i.country == ngo.country):
             continue
         donationDetails = {
             "address": i.address,
@@ -242,8 +247,7 @@ def DashboardNGO(ngo_id):
             "pincode": i.pincode,
             "country": i.country,
             "items": [],
-            "id" : i.id,
-            "phone": i.phone
+            "id" : i.id
         }
 
         current_datetime=datetime.datetime.now()
@@ -302,7 +306,7 @@ def DashboardDonor(donor_id):
                 items.append(item)
         donationDetails["items"] = items
         jsonDonations.append(donationDetails)
-    
+
     return jsonify({ "donations" : jsonDonations, "name" : donorr.name, "email":donorr.email, "phone" : donorr.phone , "noOfDonations": noOfDonations, "noOfPlatesDonated": noOfPlatesDonated, "noOfActiveDonations": noOfActiveDonations})
 
 @app.route('/DeleteDonation/<int:donation_id>', methods=['DELETE'])
@@ -344,4 +348,3 @@ def initialize_database():
 if __name__ == '__main__':
     initialize_database()
     app.run(host='0.0.0.0', debug=True, port=5000)
-
